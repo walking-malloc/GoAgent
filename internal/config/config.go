@@ -44,7 +44,7 @@ type MySQLConfig struct {
 
 // DSN 返回 MySQL DSN
 func (m MySQLConfig) DSN() string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&collation=utf8mb4_unicode_ci&parseTime=True&loc=Local",
 		m.User, m.Password, m.Host, m.Port, m.DBName, m.Charset)
 }
 

@@ -1,0 +1,907 @@
+basePath: /api/v1
+definitions:
+  handler.ChatRequest:
+    properties:
+      kb_id:
+        description: 知识库ID（可选）
+        example: 01KK4BRK0P0HEBSNSBB6MY8QGW
+        type: string
+      question:
+        description: 用户问题
+        example: 什么是RAG？
+        type: string
+      top_k:
+        description: 检索Top-K个文档片段（默认5）
+        example: 5
+        type: integer
+    required:
+    - question
+    type: object
+  handler.ChatResponse:
+    properties:
+      answer:
+        description: AI生成的答案
+        example: RAG是检索增强生成...
+        type: string
+      contexts:
+        description: 检索到的文档片段
+        example:
+        - '["文档片段1"'
+        - ' "文档片段2"]'
+        items:
+          type: string
+        type: array
+      source_docs:
+        description: 来源文档ID列表
+        example:
+        - '["doc_id_1"'
+        - ' "doc_id_2"]'
+        items:
+          type: string
+        type: array
+    type: object
+  handler.LoginRequest:
+    properties:
+      password:
+        description: 密码
+        example: admin123
+        type: string
+      username:
+        description: 用户名
+        example: admin
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  model.Document:
+    properties:
+      chunk_count:
+        type: integer
+      create_time:
+        type: string
+      created_by:
+        type: string
+      error_message:
+        type: string
+      file_name:
+        type: string
+      file_path:
+        type: string
+      file_size:
+        type: integer
+      file_type:
+        type: string
+      id:
+        type: string
+      kb_id:
+        type: string
+      name:
+        type: string
+      status:
+        $ref: '#/definitions/model.DocumentStatus'
+      update_time:
+        type: string
+    type: object
+  model.DocumentStatus:
+    enum:
+    - pending
+    - processing
+    - completed
+    - failed
+    type: string
+    x-enum-comments:
+      DocumentStatusCompleted: 已完成
+      DocumentStatusFailed: 失败
+      DocumentStatusPending: 待处理
+      DocumentStatusProcessing: 处理中
+    x-enum-descriptions:
+    - 待处理
+    - 处理中
+    - 已完成
+    - 失败
+    x-enum-varnames:
+    - DocumentStatusPending
+    - DocumentStatusProcessing
+    - DocumentStatusCompleted
+    - DocumentStatusFailed
+  model.KnowledgeBase:
+    properties:
+      collection_name:
+        type: string
+      create_time:
+        type: string
+      created_by:
+        type: string
+      embedding_model:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      update_time:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  model.User:
+    properties:
+      avatar:
+        type: string
+      create_time:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      update_time:
+        type: string
+      username:
+        type: string
+    type: object
+  request.ChangePasswordRequest:
+    properties:
+      current_password:
+        description: 当前密码
+        example: oldpassword
+        type: string
+      new_password:
+        description: 新密码
+        example: newpassword123
+        type: string
+    required:
+    - current_password
+    - new_password
+    type: object
+  request.KnowledgeBaseCreateRequest:
+    properties:
+      embedding_model:
+        description: 嵌入模型标识
+        example: qwen3-embedding:8b-fp16
+        type: string
+      name:
+        description: 知识库名称
+        example: 产品文档库
+        type: string
+    required:
+    - name
+    type: object
+  request.KnowledgeBaseUpdateRequest:
+    properties:
+      name:
+        description: 知识库名称
+        example: 产品文档库（更新）
+        type: string
+    required:
+    - name
+    type: object
+  request.UserCreateRequest:
+    properties:
+      avatar:
+        description: 头像URL
+        example: https://example.com/avatar.jpg
+        type: string
+      password:
+        description: 密码
+        example: password123
+        type: string
+      role:
+        description: 角色（admin/user），默认为user
+        example: user
+        type: string
+      username:
+        description: 用户名（不能为"admin"）
+        example: testuser
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  request.UserUpdateRequest:
+    properties:
+      avatar:
+        description: 头像URL
+        example: https://example.com/new-avatar.jpg
+        type: string
+      role:
+        description: 角色（admin/user）
+        example: admin
+        type: string
+      username:
+        description: 用户名（不能为"admin"）
+        example: newusername
+        type: string
+    type: object
+  response.Response:
+    description: 统一响应格式
+    properties:
+      code:
+        description: 状态码，0表示成功，非0表示失败
+        example: 0
+        type: integer
+      data:
+        description: 响应数据（可选）
+      message:
+        description: 响应消息
+        example: success
+        type: string
+    type: object
+  service.LoginVO:
+    properties:
+      avatar:
+        type: string
+      role:
+        type: string
+      token:
+        type: string
+      user_id:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@example.com
+    name: API Support
+    url: http://www.example.com/support
+  description: Ragent Go 项目 API 文档
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Ragent Go API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: 用户登录，获取访问Token
+      parameters:
+      - description: 登录请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.LoginVO'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 用户登录
+      tags:
+      - 认证
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: 用户登出，将Token加入黑名单
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 用户登出
+      tags:
+      - 认证
+  /chat:
+    post:
+      consumes:
+      - application/json
+      description: 基于知识库进行智能问答，自动检索相关文档片段并生成答案
+      parameters:
+      - description: 问答请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 问答响应
+          schema:
+            $ref: '#/definitions/handler.ChatResponse'
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: RAG智能问答
+      tags:
+      - Chat
+  /documents:
+    get:
+      description: 根据知识库ID分页查询文档列表
+      parameters:
+      - description: 知识库ID
+        in: query
+        name: kb_id
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 分页查询文档列表
+      tags:
+      - 文档
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传文档到知识库，自动进行解析、分块、向量化
+      parameters:
+      - description: 知识库ID
+        in: formData
+        name: kb_id
+        required: true
+        type: string
+      - description: 文档文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Document'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+        "500":
+          description: 上传失败
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 上传文档
+      tags:
+      - 文档
+  /documents/{id}:
+    delete:
+      description: 删除文档及其所有分块和向量数据
+      parameters:
+      - description: 文档ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: 文档不存在
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除文档
+      tags:
+      - 文档
+    get:
+      description: 根据ID获取文档详细信息
+      parameters:
+      - description: 文档ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Document'
+              type: object
+        "404":
+          description: 文档不存在
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取文档详情
+      tags:
+      - 文档
+  /documents/{id}/progress:
+    get:
+      description: 获取文档的处理进度信息（状态、分块数量、向量化进度等）
+      parameters:
+      - description: 文档ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+        "404":
+          description: 文档不存在
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取文档处理进度
+      tags:
+      - 文档
+  /health:
+    get:
+      description: 检查服务是否正常运行
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: 健康检查
+      tags:
+      - 系统
+  /knowledge-base:
+    get:
+      consumes:
+      - application/json
+      description: 分页查询知识库列表，支持关键词搜索
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 搜索关键词
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  properties:
+                    list:
+                      items:
+                        $ref: '#/definitions/model.KnowledgeBase'
+                      type: array
+                    page:
+                      type: integer
+                    page_size:
+                      type: integer
+                    total:
+                      type: integer
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 分页查询知识库列表
+      tags:
+      - 知识库
+    post:
+      consumes:
+      - application/json
+      description: 创建新知识库，自动创建 Milvus Collection
+      parameters:
+      - description: 创建知识库请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.KnowledgeBaseCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeBase'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建知识库
+      tags:
+      - 知识库
+  /knowledge-base/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除知识库，同时删除 Milvus Collection
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除知识库
+      tags:
+      - 知识库
+    get:
+      consumes:
+      - application/json
+      description: 根据ID获取知识库详细信息
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.KnowledgeBase'
+              type: object
+        "404":
+          description: 知识库不存在
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取知识库详情
+      tags:
+      - 知识库
+    put:
+      consumes:
+      - application/json
+      description: 更新知识库名称（只能更新名称）
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 更新知识库请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.KnowledgeBaseUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新知识库
+      tags:
+      - 知识库
+  /user/current:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前登录用户的详细信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.User'
+              type: object
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取当前用户信息
+      tags:
+      - 用户
+  /user/password:
+    put:
+      consumes:
+      - application/json
+      description: 修改当前登录用户的密码
+      parameters:
+      - description: 修改密码请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.ChangePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 修改密码
+      tags:
+      - 用户
+  /users:
+    get:
+      consumes:
+      - application/json
+      description: 分页查询用户列表，支持关键词搜索（仅管理员）
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 搜索关键词
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  properties:
+                    list:
+                      items:
+                        $ref: '#/definitions/model.User'
+                      type: array
+                    page:
+                      type: integer
+                    page_size:
+                      type: integer
+                    total:
+                      type: integer
+                  type: object
+              type: object
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 分页查询用户列表
+      tags:
+      - 用户管理
+    post:
+      consumes:
+      - application/json
+      description: 创建新用户（仅管理员）
+      parameters:
+      - description: 创建用户请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.UserCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  properties:
+                    id:
+                      type: string
+                  type: object
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建用户
+      tags:
+      - 用户管理
+  /users/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除用户（仅管理员，软删除）
+      parameters:
+      - description: 用户ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除用户
+      tags:
+      - 用户管理
+    put:
+      consumes:
+      - application/json
+      description: 更新用户信息（仅管理员）
+      parameters:
+      - description: 用户ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 更新用户请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/request.UserUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新用户
+      tags:
+      - 用户管理
+securityDefinitions:
+  BearerAuth:
+    description: 使用 Bearer Token 进行认证，格式：Bearer {token}
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

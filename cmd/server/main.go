@@ -10,17 +10,21 @@ import (
 	"syscall"
 	"time"
 
-	"ragent-go/docs"
 	"ragent-go/internal/api/handler"
 	"ragent-go/internal/api/middleware"
 	"ragent-go/internal/config"
 	"ragent-go/internal/database"
 	"ragent-go/internal/model"
+	"ragent-go/internal/pkg/ai"
+	"ragent-go/internal/pkg/milvus"
 	"ragent-go/internal/pkg/redis"
 	"ragent-go/internal/repository"
 	"ragent-go/internal/service"
 
+	"ragent-go/docs"
+
 	"github.com/gin-gonic/gin"
+	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	redisv9 "github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -48,8 +52,9 @@ import (
 // @description 使用 Bearer Token 进行认证，格式：Bearer {token}
 
 var (
-	db          *gorm.DB
-	redisClient *redisv9.Client
+	db           *gorm.DB
+	redisClient  *redisv9.Client
+	milvusClient client.Client
 )
 
 func main() {
@@ -65,7 +70,7 @@ func main() {
 
 	// 初始化数据库连接
 	var initErr error
-	db, redisClient, initErr = initDatabases(cfg)
+	db, redisClient, milvusClient, initErr = initDatabases(cfg)
 	if initErr != nil {
 		log.Fatalf("Failed to initialize databases: %v", initErr)
 	}
@@ -83,7 +88,7 @@ func main() {
 	r.Use(middleware.CORS())
 
 	// 注册路由
-	setupRoutes(r)
+	setupRoutes(r, cfg)
 
 	// 启动服务器
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -118,25 +123,28 @@ func main() {
 }
 
 // initDatabases 初始化所有数据库连接
-func initDatabases(cfg *config.Config) (*gorm.DB, *redisv9.Client, error) {
+func initDatabases(cfg *config.Config) (*gorm.DB, *redisv9.Client, client.Client, error) {
 	// 初始化 MySQL
 	mysqlDB, err := database.InitMySQL(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("MySQL init failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("MySQL init failed: %w", err)
 	}
 
 	// 初始化 Redis
 	rdb, err := database.InitRedis(cfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Redis init failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("Redis init failed: %w", err)
 	}
 
-	// Milvus 稍后添加
-	// if err := database.InitMilvus(cfg); err != nil {
-	// 	return nil, nil, fmt.Errorf("Milvus init failed: %w", err)
-	// }
+	// 初始化 Milvus（如果连接失败，使用 Mock）
+	var milvusCli client.Client
+	milvusCli, err = database.InitMilvus(cfg)
+	if err != nil {
+		log.Printf("⚠️  Milvus init failed: %v, using MockCollectionManager", err)
+		milvusCli = nil // nil 表示使用 Mock
+	}
 
-	return mysqlDB, rdb, nil
+	return mysqlDB, rdb, milvusCli, nil
 }
 
 // closeDatabases 关闭所有数据库连接
@@ -146,6 +154,9 @@ func closeDatabases() {
 	}
 	if err := database.CloseRedis(redisClient); err != nil {
 		log.Printf("Error closing Redis: %v", err)
+	}
+	if err := database.CloseMilvus(milvusClient); err != nil {
+		log.Printf("Error closing Milvus: %v", err)
 	}
 }
 
@@ -161,7 +172,7 @@ func healthCheck(c *gin.Context) {
 }
 
 // setupRoutes 设置路由
-func setupRoutes(r *gin.Engine) {
+func setupRoutes(r *gin.Engine, cfg *config.Config) {
 	// 初始化 Swagger 文档
 	docs.SwaggerInfo.BasePath = "/api/v1"
 
@@ -197,7 +208,7 @@ func setupRoutes(r *gin.Engine) {
 
 		// 用户相关（需要认证）
 		users := v1.Group("/user")
-		users.Use(middleware.Auth())
+		users.Use(middleware.OptionalAuth())
 		{
 			users.GET("/current", userHandler.GetCurrentUser)
 			users.PUT("/password", userHandler.ChangePassword) // 修改密码
@@ -205,13 +216,94 @@ func setupRoutes(r *gin.Engine) {
 
 		// 用户管理（仅管理员）
 		userMgmt := v1.Group("/users")
-		userMgmt.Use(middleware.Auth())
+		userMgmt.Use(middleware.OptionalAuth())
 		userMgmt.Use(middleware.RequireRole(model.RoleAdmin))
 		{
 			userMgmt.GET("", userHandler.PageQuery)     // 分页查询
 			userMgmt.POST("", userHandler.Create)       // 创建用户
 			userMgmt.PUT("/:id", userHandler.Update)    // 更新用户
 			userMgmt.DELETE("/:id", userHandler.Delete) // 删除用户
+		}
+
+		// 知识库相关（需要认证）
+		knowledgeBase := v1.Group("/knowledge-base")
+		// knowledgeBase.Use(middleware.OptionalAuth())
+		{
+			// 初始化知识库服务
+			kbRepo := repository.NewKnowledgeBaseRepository(db)
+
+			collectionMgr := milvus.NewRealCollectionManager(milvusClient)
+			if collectionMgr == nil {
+				log.Println("⚠️  Milvus client is not available")
+				return
+			}
+			// 从配置获取默认向量维度，如果没有则使用 1024
+			defaultDim := 1024
+			if cfg.AI.Embedding.Dimension > 0 {
+				defaultDim = cfg.AI.Embedding.Dimension
+			}
+
+			kbService := service.NewKnowledgeBaseService(kbRepo, collectionMgr, defaultDim)
+			kbHandler := handler.NewKnowledgeBaseHandler(kbService)
+
+			knowledgeBase.POST("", kbHandler.Create)       // 创建知识库
+			knowledgeBase.GET("/:id", kbHandler.GetByID)   // 获取知识库详情
+			knowledgeBase.GET("", kbHandler.PageQuery)     // 分页查询知识库列表
+			knowledgeBase.PUT("/:id", kbHandler.Update)    // 更新知识库
+			knowledgeBase.DELETE("/:id", kbHandler.Delete) // 删除知识库
+		}
+
+		// 初始化共享服务（文档和问答都需要）
+		embeddingSvc := ai.NewEmbeddingService(cfg)
+		vectorMgr := milvus.NewVectorManager(milvusClient)
+		kbRepo := repository.NewKnowledgeBaseRepository(db)
+
+		// 文档相关（需要认证）
+		documents := v1.Group("/documents")
+		// documents.Use(middleware.Auth())
+		{
+			// 初始化文档服务
+			docRepo := repository.NewDocumentRepository(db)
+			chunkRepo := repository.NewDocumentChunkRepository(db)
+
+			// 分块服务配置
+			chunkService := service.NewChunkService(1000, 200) // 1000字符分块，200字符重叠
+
+			// 文件上传目录
+			uploadBasePath := "uploads"
+			if err := os.MkdirAll(uploadBasePath, 0755); err != nil {
+				log.Printf("Warning: failed to create upload directory: %v", err)
+			}
+
+			docService := service.NewDocumentService(
+				docRepo,
+				chunkRepo,
+				kbRepo,
+				chunkService,
+				embeddingSvc,
+				vectorMgr,
+				uploadBasePath,
+			)
+			docHandler := handler.NewDocumentHandler(docService)
+
+			documents.POST("", docHandler.UploadDocument)                  // 上传文档
+			documents.GET("/:id", docHandler.GetDocumentByID)              // 获取文档详情
+			documents.GET("/:id/progress", docHandler.GetDocumentProgress) // 获取文档处理进度
+			documents.GET("", docHandler.ListDocuments)                    // 分页查询文档列表
+			documents.DELETE("/:id", docHandler.DeleteDocument)            // 删除文档
+		}
+
+		// RAG问答相关（需要认证）
+		chat := v1.Group("/chat")
+		// chat.Use(middleware.OptionalAuth())
+		{
+			// 初始化RAG问答服务
+			retrievalSvc := service.NewRetrievalService(embeddingSvc, vectorMgr)
+			llmSvc := ai.NewLLMService(cfg)
+			chatService := service.NewChatService(retrievalSvc, llmSvc, kbRepo)
+			chatHandler := handler.NewChatHandler(chatService)
+
+			chat.POST("", chatHandler.Chat) // RAG智能问答
 		}
 	}
 }

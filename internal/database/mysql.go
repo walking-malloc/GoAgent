@@ -42,7 +42,24 @@ func InitMySQL(cfg *config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to ping MySQL: %w", err)
 	}
 
-	log.Println("✅ MySQL connected successfully")
+	// 显式设置连接字符集为 utf8mb4（确保客户端字符集正确）
+	// 设置多个字符集相关参数，确保完全兼容
+	charsetSQLs := []string{
+		"SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+		"SET CHARACTER SET utf8mb4",
+		"SET character_set_client = utf8mb4",
+		"SET character_set_connection = utf8mb4",
+		"SET character_set_results = utf8mb4",
+		"SET collation_connection = utf8mb4_unicode_ci",
+	}
+	
+	for _, sql := range charsetSQLs {
+		if err := db.Exec(sql).Error; err != nil {
+			log.Printf("Warning: failed to execute '%s': %v", sql, err)
+		}
+	}
+
+	log.Println("✅ MySQL connected successfully with utf8mb4 charset")
 	return db, nil
 }
 
