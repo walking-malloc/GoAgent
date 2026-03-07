@@ -7,10 +7,11 @@ import (
 )
 
 // Response 统一响应结构
+// @Description 统一响应格式
 type Response struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int         `json:"code" example:"0"`          // 状态码，0表示成功，非0表示失败
+	Message string      `json:"message" example:"success"` // 响应消息
+	Data    interface{} `json:"data,omitempty"`            // 响应数据（可选）
 }
 
 // Success 成功响应

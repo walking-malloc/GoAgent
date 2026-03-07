@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# 构建产物
+bin/
+dist/
+*.exe
+
+# 依赖
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志
+logs/
+*.log
+
+# 配置文件（敏感信息）
+configs/config.yaml
+configs/*.yaml
+!configs/config.example.yaml
+
+# 文档
+docs/
+*.md
+!README.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 其他
+.DS_Store
+Thumbs.db

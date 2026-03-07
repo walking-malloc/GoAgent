@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -76,13 +77,13 @@ func (m MilvusConfig) Addr() string {
 
 // AIConfig AI 配置
 type AIConfig struct {
-	OpenAI   OpenAIConfig   `mapstructure:"openai"`
+	DeepSeek  DeepSeekConfig  `mapstructure:"deepseek"`
 	Dashscope DashscopeConfig `mapstructure:"dashscope"`
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
 }
 
 // OpenAIConfig OpenAI 配置
-type OpenAIConfig struct {
+type DeepSeekConfig struct {
 	APIKey  string `mapstructure:"api_key"`
 	BaseURL string `mapstructure:"base_url"`
 	Model   string `mapstructure:"model"`
@@ -103,9 +104,9 @@ type EmbeddingConfig struct {
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level    string `mapstructure:"level"`    // debug, info, warn, error
-	Format   string `mapstructure:"format"`   // json, text
-	Output   string `mapstructure:"output"`   // stdout, file
+	Level    string `mapstructure:"level"`  // debug, info, warn, error
+	Format   string `mapstructure:"format"` // json, text
+	Output   string `mapstructure:"output"` // stdout, file
 	FilePath string `mapstructure:"file_path"`
 }
 
@@ -122,18 +123,27 @@ func Load(configPath string) (*Config, error) {
 	// 设置默认值
 	setDefaults()
 
-	// 读取配置文件
+	// 支持环境变量（必须在 ReadInConfig 之前设置才能覆盖配置）
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// 读取配置文件（环境变量会覆盖配置文件中的值）
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Failed to read config file: %v, using defaults", err)
 	}
 
-	// 支持环境变量
-	viper.AutomaticEnv()
+	// 显式绑定环境变量（确保环境变量优先级最高）
+	viper.BindEnv("database.mysql.host", "DATABASE_MYSQL_HOST")
+	viper.BindEnv("redis.host", "REDIS_HOST")
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	// 调试：打印实际使用的配置值
+	log.Printf("Database MySQL Host: %s", config.Database.MySQL.Host)
+	log.Printf("Redis Host: %s", config.Redis.Host)
 
 	globalConfig = &config
 	return &config, nil
