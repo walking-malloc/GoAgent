@@ -1,0 +1,54 @@
+# Ragent Go 配置文件示例
+
+server:
+  port: 8080
+  mode: debug # debug, release, test
+
+database:
+  mysql:
+    host: localhost
+    port: 3306
+    user: root
+    password: root
+    dbname: ragent
+    charset: utf8mb4
+    max_open_conns: 100
+    max_idle_conns: 10
+    conn_max_lifetime: 3600 # 秒
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+milvus:
+  host: localhost
+  port: 19530
+  username: ""
+  password: ""
+
+ai:
+  # OpenAI
+  openai:
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-3.5-turbo"
+  
+  # 阿里云百炼
+  dashscope:
+    api_key: ""
+    base_url: "https://dashscope.aliyuncs.com/api/v1"
+    model: "qwen-turbo"
+  
+  # Embedding 模型
+  embedding:
+    model: "text-embedding-ada-002"
+    dimension: 1536
+
+log:
+  level: info # debug, info, warn, error
+  format: json # json, text
+  output: stdout # stdout, file
+  file_path: logs/app.log
