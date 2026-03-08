@@ -118,8 +118,12 @@ func (s *DocumentService) processDocument(docID, collectionName string) {
 
 	// 拼接完整文件路径
 	fullFilePath := filepath.Join(s.uploadBasePath, doc.FilePath)
-	parser := parser.GetParser(doc.FileType)
-	text, err := parser.Parse(fullFilePath)
+	p := parser.GetParser(doc.FileType)
+
+	// 记录使用的解析器类型
+	log.Printf("🔧 [%s] 使用解析器解析 %s 格式", docID, doc.FileType)
+
+	text, err := p.Parse(fullFilePath)
 	if err != nil {
 		log.Printf("❌ [%s] 解析文档失败: %v", docID, err)
 		_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, fmt.Sprintf("failed to parse document: %v", err))
@@ -153,60 +157,84 @@ func (s *DocumentService) processDocument(docID, collectionName string) {
 	default:
 	}
 
-	chunks := s.chunkService.ChunkText(text)
-	if len(chunks) == 0 {
+	// 3. 流式分块并分批保存到数据库（内存优化版本）
+	log.Printf("💾 [%s] 开始分块并保存到数据库，文本长度: %d 字符", docID, len(text))
+	saveBatchSize := 50 // 每批保存50个分块
+	batchChunks := make([]*model.DocumentChunk, 0, saveBatchSize)
+	chunkIndex := 0
+	totalChunks := 0
+
+	// 使用流式处理，边分块边保存，避免一次性创建所有chunks
+	chunkErr := s.chunkService.ChunkTextStreaming(text, func(chunk Chunk) error {
+		// 检查上下文是否已取消
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("处理超时或已取消")
+		default:
+		}
+
+		// 创建数据库对象
+		dbChunk := &model.DocumentChunk{
+			ID:            ulid.Make().String(),
+			DocID:         docID,
+			KBID:          doc.KBID,
+			ChunkIndex:    chunkIndex,
+			Content:       chunk.Content,
+			ContentLength: len(chunk.Content),
+			VectorStatus:  model.VectorStatusPending,
+			CreateTime:    time.Now(),
+			UpdateTime:    time.Now(),
+		}
+
+		// 记录元数据信息（可用于日志）
+		if len(chunk.Metadata) > 0 {
+			if chapter, ok := chunk.Metadata["chapter"]; ok {
+				log.Printf("📑 [%s] Chunk %d: 章节=%s", docID, chunkIndex, chapter)
+			}
+			if section, ok := chunk.Metadata["section"]; ok {
+				log.Printf("📄 [%s] Chunk %d: 小节=%s", docID, chunkIndex, section)
+			}
+		}
+
+		batchChunks = append(batchChunks, dbChunk)
+		chunkIndex++
+		totalChunks++
+
+		// 达到批次大小时，批量保存
+		if len(batchChunks) >= saveBatchSize {
+			if err := s.chunkRepo.CreateBatch(batchChunks); err != nil {
+				return fmt.Errorf("保存分块失败: %w", err)
+			}
+			log.Printf("💾 [%s] 已保存 %d 个分块", docID, totalChunks)
+			batchChunks = batchChunks[:0] // 清空切片，保留容量
+		}
+
+		return nil
+	})
+
+	if chunkErr != nil {
+		log.Printf("❌ [%s] 分块处理失败: %v", docID, chunkErr)
+		_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, fmt.Sprintf("chunking failed: %v", chunkErr))
+		return
+	}
+
+	// 保存剩余的分块
+	if len(batchChunks) > 0 {
+		if err := s.chunkRepo.CreateBatch(batchChunks); err != nil {
+			log.Printf("❌ [%s] 保存最后一批分块失败: %v", docID, err)
+			_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, fmt.Sprintf("failed to save final chunks: %v", err))
+			return
+		}
+		log.Printf("💾 [%s] 已保存最后 %d 个分块", docID, len(batchChunks))
+	}
+
+	if totalChunks == 0 {
 		log.Printf("❌ [%s] 分块失败：未生成分块", docID)
 		_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, "no chunks generated")
 		return
 	}
-	log.Printf("✅ [%s] 分块完成，共 %d 个分块", docID, len(chunks))
 
-	// 3. 分批保存分块到数据库（避免一次性创建所有对象占用内存）
-	log.Printf("💾 [%s] 开始保存分块到数据库", docID)
-	saveBatchSize := 50 // 每批保存50个分块
-	totalChunks := len(chunks)
-	chunkIndex := 0
-
-	for i := 0; i < totalChunks; i += saveBatchSize {
-		// 检查上下文是否已取消
-		select {
-		case <-ctx.Done():
-			log.Printf("❌ [%s] 处理超时或已取消", docID)
-			_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, "processing timeout or cancelled")
-			return
-		default:
-		}
-
-		end := i + saveBatchSize
-		if end > totalChunks {
-			end = totalChunks
-		}
-
-		// 只创建当前批次的分块对象
-		batchChunks := make([]*model.DocumentChunk, end-i)
-		for j := 0; j < end-i; j++ {
-			batchChunks[j] = &model.DocumentChunk{
-				ID:            ulid.Make().String(),
-				DocID:         docID,
-				KBID:          doc.KBID,
-				ChunkIndex:    chunkIndex,
-				Content:       chunks[i+j],
-				ContentLength: len(chunks[i+j]),
-				VectorStatus:  model.VectorStatusPending,
-				CreateTime:    time.Now(),
-				UpdateTime:    time.Now(),
-			}
-			chunkIndex++
-		}
-
-		if err := s.chunkRepo.CreateBatch(batchChunks); err != nil {
-			log.Printf("❌ [%s] 保存分块失败: %v", docID, err)
-			_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, fmt.Sprintf("failed to save chunks: %v", err))
-			return
-		}
-
-		log.Printf("💾 [%s] 已保存 %d/%d 个分块", docID, end, totalChunks)
-	}
+	log.Printf("✅ [%s] 分块完成，共 %d 个分块", docID, totalChunks)
 
 	// 更新分块数量
 	_ = s.docRepo.UpdateChunkCount(docID, totalChunks)
@@ -215,7 +243,7 @@ func (s *DocumentService) processDocument(docID, collectionName string) {
 	log.Printf("🔢 [%s] 开始向量化处理，共 %d 个分块", docID, totalChunks)
 
 	// 从数据库分批查询待向量化分块
-	vectorBatchSize := 10 // 每批处理10个
+	vectorBatchSize := 10 // 每批处理10个分块
 	totalBatches := (totalChunks + vectorBatchSize - 1) / vectorBatchSize
 	processedCount := 0
 

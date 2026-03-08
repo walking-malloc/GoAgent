@@ -17,6 +17,7 @@ import (
 	"ragent-go/internal/model"
 	"ragent-go/internal/pkg/ai"
 	"ragent-go/internal/pkg/milvus"
+	"ragent-go/internal/pkg/parser"
 	"ragent-go/internal/pkg/redis"
 	"ragent-go/internal/repository"
 	"ragent-go/internal/service"
@@ -75,6 +76,9 @@ func main() {
 		log.Fatalf("Failed to initialize databases: %v", initErr)
 	}
 	defer closeDatabases()
+
+	// 初始化文档解析器
+	parser.InitParser(cfg)
 
 	// 设置 Gin 模式
 	gin.SetMode(cfg.Server.Mode)
@@ -267,7 +271,7 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 			chunkRepo := repository.NewDocumentChunkRepository(db)
 
 			// 分块服务配置
-			chunkService := service.NewChunkService(1000, 200) // 1000字符分块，200字符重叠
+			chunkService := service.NewChunkService(500, 50) // 1000字符分块，200字符重叠
 
 			// 文件上传目录
 			uploadBasePath := "uploads"
