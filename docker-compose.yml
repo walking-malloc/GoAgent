@@ -132,6 +132,21 @@ services:
       milvus:
         condition: service_healthy
 
+  # Apache Tika Server - 文档解析服务
+  tika:
+    image: apache/tika:latest
+    container_name: ragent-tika
+    restart: unless-stopped
+    ports:
+      - "9998:9998"  # Tika Server HTTP API
+    networks:
+      - ragent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9998/tika"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Go 应用
   # app:
   #   build:

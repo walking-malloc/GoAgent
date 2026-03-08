@@ -15,6 +15,7 @@ type Config struct {
 	Redis    RedisConfig    `mapstructure:"redis"`
 	Milvus   MilvusConfig   `mapstructure:"milvus"`
 	AI       AIConfig       `mapstructure:"ai"`
+	Tika     TikaConfig     `mapstructure:"tika"`
 	Log      LogConfig      `mapstructure:"log"`
 }
 
@@ -102,6 +103,19 @@ type EmbeddingConfig struct {
 	Dimension int    `mapstructure:"dimension"`
 }
 
+// TikaConfig Tika 配置
+type TikaConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Host    string `mapstructure:"host"`
+	Port    int    `mapstructure:"port"`
+	Timeout int    `mapstructure:"timeout"` // 秒
+}
+
+// URL 返回 Tika Server URL
+func (t TikaConfig) URL() string {
+	return fmt.Sprintf("http://%s:%d", t.Host, t.Port)
+}
+
 // LogConfig 日志配置
 type LogConfig struct {
 	Level    string `mapstructure:"level"`  // debug, info, warn, error
@@ -183,6 +197,12 @@ func setDefaults() {
 	viper.SetDefault("milvus.port", 19530)
 	viper.SetDefault("milvus.username", "")
 	viper.SetDefault("milvus.password", "")
+
+	// Tika
+	viper.SetDefault("tika.enabled", true)
+	viper.SetDefault("tika.host", "localhost")
+	viper.SetDefault("tika.port", 9998)
+	viper.SetDefault("tika.timeout", 30)
 
 	// Log
 	viper.SetDefault("log.level", "info")

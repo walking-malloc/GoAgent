@@ -358,10 +358,18 @@ var (
 func getTitlePatterns() []*regexp.Regexp {
 	titlePatternsOnce.Do(func() {
 		titlePatterns = []*regexp.Regexp{
+			// 章节标题（第X章、第X节）- 作为章节
 			regexp.MustCompile(`^第[一二三四五六七八九十\d]+章[：:]\s*(.+)$`),
 			regexp.MustCompile(`^第[一二三四五六七八九十\d]+节[：:]\s*(.+)$`),
+			// 中文数字+顿号（一、二、三等）- 作为章节
 			regexp.MustCompile(`^[一二三四五六七八九十]+[、．]\s*(.+)$`),
-			regexp.MustCompile(`^\d+[、．]\s*(.+)$`),
+			// 括号+中文数字+括号（（一）、（二）等）- 作为小节
+			regexp.MustCompile(`^[（(][一二三四五六七八九十]+[）)]\s*(.+)$`),
+			// 数字+点或顿号（1.、2.等）- 作为小节
+			regexp.MustCompile(`^\d+[、．.]\s*(.+)$`),
+			// 附件标题
+			regexp.MustCompile(`^附件\s*\d+\s*(.+)$`),
+			// 其他格式
 			regexp.MustCompile(`^第\d+章\s*(.+)$`),
 			regexp.MustCompile(`^第\d+节\s*(.+)$`),
 		}
@@ -512,13 +520,9 @@ func (s *ChunkService) ChunkTextStreaming(text string, callback func(chunk Chunk
 		return s.chunkTextSimpleStreaming(text, callback)
 	}
 
-	// 提取标题和章节信息（只提取一次，复用）
-	titleContext := s.extractTitleContext(text)
-
-	// 流式处理段落，边处理边回调，不保存所有chunks
-	// 简化逻辑：只按段落分割，不再进一步分割长段落
+	// 按小标题分割段落，动态更新标题上下文
 	paragraphIndex := 0
-	return s.processParagraphsStreaming(text, func(para string) error {
+	return s.processParagraphsByHeadings(text, func(para string, titleContext map[string]string) error {
 		para = strings.TrimSpace(para)
 
 		// 过滤空段落和过短的段落
@@ -665,6 +669,137 @@ func (s *ChunkService) processParagraphsStreaming(text string, callback func(par
 		// 过滤空段落和过短的段落（避免重复处理）
 		if para != "" && len(para) >= 10 { // 至少10个字符才处理
 			if err := callback(para); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// processParagraphsByHeadings 按小标题分割段落，动态更新标题上下文
+func (s *ChunkService) processParagraphsByHeadings(text string, callback func(para string, titleContext map[string]string) error) error {
+	// 统一换行符
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+
+	// 按行分割，便于识别标题
+	lines := strings.Split(text, "\n")
+	titlePatterns := getTitlePatterns()
+	whitespaceRegex := getWhitespaceRegex()
+
+	// 当前标题上下文（动态更新）
+	currentChapter := ""
+	currentSection := ""
+	var currentParagraph strings.Builder
+
+	// 检查是否是标题行
+	isHeading := func(line string) (bool, string, bool) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			return false, "", false
+		}
+
+		// 检查是否是标题
+		for i, pattern := range titlePatterns {
+			matches := pattern.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				title := strings.TrimSpace(matches[1])
+				// 如果提取的标题为空，使用完整行作为标题
+				if title == "" {
+					title = line
+				}
+				if title != "" {
+					// 根据模式索引判断是章节还是小节
+					// 索引 0,1: 第X章、第X节（章节）
+					// 索引 2: 中文数字+顿号（一、二、三等，章节）
+					// 索引 3: 括号+中文数字+括号（（一）、（二）等，小节）
+					// 索引 4: 数字+点或顿号（1.、2.等，小节）
+					// 索引 5: 附件标题（章节）
+					// 索引 6,7: 其他格式（章节）
+					isChapter := (i <= 2) || (i >= 5) // 索引 0,1,2,5,6,7 是章节
+					return true, title, isChapter
+				}
+			}
+		}
+
+		// 检查是否是短行且以冒号结尾（可能是标题）
+		if len(line) < 50 && (strings.HasSuffix(line, "：") || strings.HasSuffix(line, ":")) {
+			title := strings.TrimSuffix(strings.TrimSuffix(line, "："), ":")
+			return true, title, false // 默认作为小节
+		}
+
+		return false, "", false
+	}
+
+	// 处理当前段落
+	flushParagraph := func() error {
+		if currentParagraph.Len() == 0 {
+			return nil
+		}
+
+		para := currentParagraph.String()
+		// 压缩多个空格为一个
+		para = whitespaceRegex.ReplaceAllString(para, " ")
+		para = strings.TrimSpace(para)
+
+		if para != "" && len(para) >= 10 {
+			// 构建标题上下文
+			titleContext := make(map[string]string, 4)
+			if currentChapter != "" {
+				titleContext["chapter"] = currentChapter
+			}
+			if currentSection != "" {
+				titleContext["section"] = currentSection
+			}
+
+			if err := callback(para, titleContext); err != nil {
+				return err
+			}
+		}
+
+		currentParagraph.Reset()
+		return nil
+	}
+
+	// 遍历所有行
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			// 空行：如果当前段落不为空，继续累积（可能是段落内的换行）
+			continue
+		}
+
+		// 检查是否是标题
+		isHeadingLine, title, isChapter := isHeading(line)
+		if isHeadingLine {
+			// 遇到新标题，先处理之前的段落
+			if err := flushParagraph(); err != nil {
+				return err
+			}
+
+			// 更新标题上下文
+			if isChapter {
+				currentChapter = title
+				currentSection = "" // 章节改变时，清空小节
+			} else {
+				currentSection = title
+			}
+
+			// 标题本身也作为段落的一部分（标题+后续内容）
+			currentParagraph.WriteString(line)
+		} else {
+			// 普通内容行
+			// 如果当前段落不为空，添加空格分隔
+			if currentParagraph.Len() > 0 {
+				currentParagraph.WriteString(" ")
+			}
+			currentParagraph.WriteString(line)
+		}
+
+		// 处理最后一行
+		if i == len(lines)-1 {
+			if err := flushParagraph(); err != nil {
 				return err
 			}
 		}

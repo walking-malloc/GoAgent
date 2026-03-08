@@ -23,11 +23,10 @@ type DocumentService struct {
 	docRepo        *repository.DocumentRepository
 	chunkRepo      *repository.DocumentChunkRepository
 	kbRepo         *repository.KnowledgeBaseRepository
-	parser         parser.Parser
 	chunkService   *ChunkService
 	embeddingSvc   *ai.EmbeddingService
 	vectorMgr      *milvus.VectorManager
-	uploadBasePath string // 文件上传基础路径
+	uploadBasePath string
 }
 
 // NewDocumentService 创建文档服务
@@ -118,12 +117,19 @@ func (s *DocumentService) processDocument(docID, collectionName string) {
 
 	// 拼接完整文件路径
 	fullFilePath := filepath.Join(s.uploadBasePath, doc.FilePath)
-	p := parser.GetParser(doc.FileType)
 
 	// 记录使用的解析器类型
 	log.Printf("🔧 [%s] 使用解析器解析 %s 格式", docID, doc.FileType)
 
-	text, err := p.Parse(fullFilePath)
+	// 直接调用 Tika 解析器解析文档
+	tikaParser := parser.GetTikaParser()
+	if tikaParser == nil {
+		log.Printf("❌ [%s] Tika 解析器未初始化", docID)
+		_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, "Tika parser is not initialized")
+		return
+	}
+
+	text, err := tikaParser.Parse(fullFilePath)
 	if err != nil {
 		log.Printf("❌ [%s] 解析文档失败: %v", docID, err)
 		_ = s.docRepo.UpdateStatus(docID, model.DocumentStatusFailed, fmt.Sprintf("failed to parse document: %v", err))
