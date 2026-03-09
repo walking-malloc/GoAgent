@@ -21,16 +21,18 @@ func NewChatHandler(chatService *service.ChatService) *ChatHandler {
 
 // ChatRequest 问答请求
 type ChatRequest struct {
-	Question string `json:"question" binding:"required" example:"什么是RAG？"` // 用户问题
-	KBID     string `json:"kb_id" example:"01KK4BRK0P0HEBSNSBB6MY8QGW"`    // 知识库ID（可选）
-	TopK     int    `json:"top_k" example:"5"`                             // 检索Top-K个文档片段（默认5）
+	Question       string `json:"question" binding:"required" example:"什么是RAG？"`              // 用户问题
+	KBID           string `json:"kb_id" example:"01KK4BRK0P0HEBSNSBB6MY8QGW"`                 // 知识库ID（可选）
+	TopK           int    `json:"top_k" example:"5"`                                          // 检索Top-K个文档片段（默认5）
+	ConversationID string `json:"conversation_id,omitempty" example:"conv-1234567890ABCDEFG"` // 会话ID（可选）
 }
 
 // ChatResponse 问答响应
 type ChatResponse struct {
-	Answer     string   `json:"answer" example:"RAG是检索增强生成..."`                     // AI生成的答案
-	Contexts   []string `json:"contexts" example:"[\"文档片段1\", \"文档片段2\"]"`          // 检索到的文档片段
-	SourceDocs []string `json:"source_docs" example:"[\"doc_id_1\", \"doc_id_2\"]"` // 来源文档ID列表
+	Answer         string   `json:"answer" example:"RAG是检索增强生成..."`                           // AI生成的答案
+	Contexts       []string `json:"contexts" example:"[\"文档片段1\", \"文档片段2\"]"`                // 检索到的文档片段
+	SourceDocs     []string `json:"source_docs" example:"[\"doc_id_1\", \"doc_id_2\"]"`       // 来源文档ID列表
+	ConversationID string   `json:"conversation_id" example:"01KK4BRK0P0HEBSNSBB6MY8QGWCONV"` // 会话ID
 }
 
 // Chat RAG问答
@@ -53,9 +55,10 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 	// 调用服务
 	resp, err := h.chatService.Chat(c.Request.Context(), service.ChatRequest{
-		Question: req.Question,
-		KBID:     req.KBID,
-		TopK:     req.TopK,
+		Question:       req.Question,
+		KBID:           req.KBID,
+		TopK:           req.TopK,
+		ConversationID: req.ConversationID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -63,8 +66,9 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, ChatResponse{
-		Answer:     resp.Answer,
-		Contexts:   resp.Contexts,
-		SourceDocs: resp.SourceDocs,
+		Answer:         resp.Answer,
+		Contexts:       resp.Contexts,
+		SourceDocs:     resp.SourceDocs,
+		ConversationID: resp.ConversationID,
 	})
 }

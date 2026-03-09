@@ -6,13 +6,16 @@ import (
 	"ragent-go/internal/pkg/ai"
 	"ragent-go/internal/repository"
 	"strings"
+
+	"github.com/oklog/ulid/v2"
 )
 
 // ChatService RAG问答服务
 type ChatService struct {
-	retrievalSvc *RetrievalService
+	retrievalSvc *RetrievalService //文档检索
 	llmSvc       *ai.LLMService
-	kbRepo       *repository.KnowledgeBaseRepository
+	kbRepo       *repository.KnowledgeBaseRepository //知识库
+	memorySvc    *ConversationMemoryService          //会话记忆
 }
 
 // NewChatService 创建RAG问答服务
@@ -20,32 +23,41 @@ func NewChatService(
 	retrievalSvc *RetrievalService,
 	llmSvc *ai.LLMService,
 	kbRepo *repository.KnowledgeBaseRepository,
+	memorySvc *ConversationMemoryService,
 ) *ChatService {
 	return &ChatService{
 		retrievalSvc: retrievalSvc,
 		llmSvc:       llmSvc,
 		kbRepo:       kbRepo,
+		memorySvc:    memorySvc,
 	}
 }
 
 // ChatRequest 问答请求
 type ChatRequest struct {
-	Question string `json:"question"` // 用户问题
-	KBID     string `json:"kb_id"`    // 知识库ID（可选）
-	TopK     int    `json:"top_k"`    // 检索Top-K个文档片段（默认5）
+	Question       string `json:"question"`                  // 用户问题
+	KBID           string `json:"kb_id"`                     // 知识库ID（可选）
+	TopK           int    `json:"top_k"`                     // 检索Top-K个文档片段（默认5）
+	ConversationID string `json:"conversation_id,omitempty"` // 会话ID（可选，用于将来精细化记忆管理）
 }
 
 // ChatResponse 问答响应
 type ChatResponse struct {
-	Answer     string   `json:"answer"`      // AI生成的答案
-	Contexts   []string `json:"contexts"`    // 检索到的文档片段
-	SourceDocs []string `json:"source_docs"` // 来源文档ID列表
+	Answer         string   `json:"answer"`          // AI生成的答案
+	Contexts       []string `json:"contexts"`        // 检索到的文档片段
+	SourceDocs     []string `json:"source_docs"`     // 来源文档ID列表
+	ConversationID string   `json:"conversation_id"` // 会话ID（后端生成或透传）
 }
 
 // Chat 执行RAG问答
 func (s *ChatService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	if req.Question == "" {
 		return nil, fmt.Errorf("question is empty")
+	}
+
+	// 如果没有会话ID，则后端自动生成一个
+	if req.ConversationID == "" {
+		req.ConversationID = ulid.Make().String()
 	}
 
 	// 默认TopK
@@ -66,7 +78,20 @@ func (s *ChatService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse,
 		return nil, fmt.Errorf("kb_id is required")
 	}
 
-	// 2. 向量检索
+	// 2. （可选）从会话记忆中检索相关历史片段
+	var memoryContexts []string
+	if s.memorySvc != nil {
+		if memoryChunks, err := s.memorySvc.SearchRelevantMemory(ctx, req.KBID, req.Question, 3); err == nil {
+			memoryContexts = make([]string, 0, len(memoryChunks))
+			for _, mc := range memoryChunks {
+				if mc.Content != "" {
+					memoryContexts = append(memoryContexts, mc.Content)
+				}
+			}
+		}
+	}
+
+	// 3. 向量检索（知识库文档）
 	retrieveReq := RetrieveRequest{
 		Query:          req.Question,
 		CollectionName: collectionName,
@@ -81,14 +106,18 @@ func (s *ChatService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse,
 
 	if len(chunks) == 0 {
 		return &ChatResponse{
-			Answer:     "抱歉，我在知识库中没有找到相关信息。",
-			Contexts:   []string{},
-			SourceDocs: []string{},
+			Answer:         "抱歉，我在知识库中没有找到相关信息。",
+			Contexts:       memoryContexts,
+			SourceDocs:     []string{},
+			ConversationID: req.ConversationID,
 		}, nil
 	}
 
-	// 3. 提取文档片段和来源
-	contexts := make([]string, 0, len(chunks))
+	// 4. 提取文档片段和来源
+	contexts := make([]string, 0, len(memoryContexts)+len(chunks))
+	// 先加入会话记忆片段
+	contexts = append(contexts, memoryContexts...)
+
 	sourceDocs := make(map[string]bool)
 
 	for _, chunk := range chunks {
@@ -104,7 +133,7 @@ func (s *ChatService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse,
 		sourceDocList = append(sourceDocList, docID)
 	}
 
-	// 4. 构建Prompt并调用LLM
+	// 5. 构建Prompt并调用LLM
 	messages := ai.BuildRAGPrompt(req.Question, contexts)
 	llmReq := ai.ChatRequest{
 		Messages:    messages,
@@ -120,9 +149,16 @@ func (s *ChatService) Chat(ctx context.Context, req ChatRequest) (*ChatResponse,
 	// 清理答案（移除多余的空白）
 	answer = strings.TrimSpace(answer)
 
+	// 6. 将本轮 Q&A 写入会话向量记忆
+	if s.memorySvc != nil {
+		// 这里 turnIndex 先用 0，占位即可
+		_ = s.memorySvc.AddTurn(ctx, req.KBID, req.ConversationID, req.Question, answer, 0)
+	}
+
 	return &ChatResponse{
-		Answer:     answer,
-		Contexts:   contexts,
-		SourceDocs: sourceDocList,
+		Answer:         answer,
+		Contexts:       contexts,
+		SourceDocs:     sourceDocList,
+		ConversationID: req.ConversationID,
 	}, nil
 }

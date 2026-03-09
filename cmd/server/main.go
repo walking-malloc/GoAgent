@@ -186,6 +186,10 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 	// 健康检查
 	r.GET("/health", healthCheck)
 
+	// 前端静态页面（简单对话演示）
+	// 访问：http://localhost:<port>/app/
+	r.Static("/app", "./frontend")
+
 	// 初始化服务（使用全局 db 和 redisClient 变量）
 	userRepo := repository.NewUserRepository(db)
 	tokenBlacklist := redis.NewTokenBlacklist(redisClient)
@@ -262,6 +266,29 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 		vectorMgr := milvus.NewVectorManager(milvusClient)
 		kbRepo := repository.NewKnowledgeBaseRepository(db)
 
+		// 默认向量维度，用于创建需要的 Milvus Collection
+		defaultDim := 1024
+		if cfg.AI.Embedding.Dimension > 0 {
+			defaultDim = cfg.AI.Embedding.Dimension
+		}
+
+		// 初始化会话记忆使用的知识库
+		chatMemoryCollection := "chat_memory"
+		if milvusClient != nil {
+			collectionMgr := milvus.NewRealCollectionManager(milvusClient)
+			ctx := context.Background()
+			exists, err := collectionMgr.CollectionExists(ctx, chatMemoryCollection)
+			if err != nil {
+				log.Printf("⚠️  Failed to check chat memory collection: %v", err)
+			} else if !exists {
+				if err := collectionMgr.CreateCollection(ctx, chatMemoryCollection, defaultDim); err != nil {
+					log.Printf("⚠️  Failed to create chat memory collection: %v", err)
+				} else {
+					log.Printf("✅ Chat memory collection %s created", chatMemoryCollection)
+				}
+			}
+		}
+
 		// 文档相关（需要认证）
 		documents := v1.Group("/documents")
 		// documents.Use(middleware.Auth())
@@ -271,7 +298,7 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 			chunkRepo := repository.NewDocumentChunkRepository(db)
 
 			// 分块服务配置
-			chunkService := service.NewChunkService(500, 50) // 1000字符分块，200字符重叠
+			chunkService := service.NewChunkService(500, 50) // 500 字符分块，50 字符重叠
 
 			// 文件上传目录
 			uploadBasePath := "uploads"
@@ -304,7 +331,8 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 			// 初始化RAG问答服务
 			retrievalSvc := service.NewRetrievalService(embeddingSvc, vectorMgr)
 			llmSvc := ai.NewLLMService(cfg)
-			chatService := service.NewChatService(retrievalSvc, llmSvc, kbRepo)
+			memorySvc := service.NewConversationMemoryService(embeddingSvc, vectorMgr, chatMemoryCollection)
+			chatService := service.NewChatService(retrievalSvc, llmSvc, kbRepo, memorySvc)
 			chatHandler := handler.NewChatHandler(chatService)
 
 			chat.POST("", chatHandler.Chat) // RAG智能问答

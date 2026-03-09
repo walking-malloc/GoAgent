@@ -7,11 +7,6 @@ import (
 	"ragent-go/internal/pkg/tika"
 )
 
-type Parser interface {
-	Parse(filePath string) (string, error)
-	Support(fileType string) bool
-}
-
 var globalTikaParser *TikaParser
 
 // InitParser 初始化解析器（需要在应用启动时调用）
