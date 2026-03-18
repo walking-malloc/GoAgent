@@ -81,6 +81,7 @@ type AIConfig struct {
 	DeepSeek  DeepSeekConfig  `mapstructure:"deepseek"`
 	Dashscope DashscopeConfig `mapstructure:"dashscope"`
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
+	Rerank    RerankConfig    `mapstructure:"rerank"`
 }
 
 // OpenAIConfig OpenAI 配置
@@ -101,6 +102,14 @@ type DashscopeConfig struct {
 type EmbeddingConfig struct {
 	Model     string `mapstructure:"model"`
 	Dimension int    `mapstructure:"dimension"`
+}
+
+// RerankConfig 重排模型配置（例如 bge-reranker-v2-m3 服务）
+type RerankConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	BaseURL string `mapstructure:"base_url"` // 如 http://localhost:8001
+	Model   string `mapstructure:"model"`    // 如 BAAI/bge-reranker-v2-m3
+	APIKey  string `mapstructure:"api_key"`  // 如服务需要鉴权，可选
 }
 
 // TikaConfig Tika 配置

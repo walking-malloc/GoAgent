@@ -445,6 +445,54 @@
                 }
             }
         },
+        "/intent/classify": {
+            "post": {
+                "description": "使用 LLM 对用户问题进行意图识别，返回按分数排序的意图列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Intent"
+                ],
+                "summary": "意图识别",
+                "parameters": [
+                    {
+                        "description": "意图识别请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.IntentClassifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "意图识别结果",
+                        "schema": {
+                            "$ref": "#/definitions/handler.IntentClassifyResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/knowledge-base": {
             "get": {
                 "security": [
@@ -1086,6 +1134,11 @@
                 "question"
             ],
             "properties": {
+                "conversation_id": {
+                    "description": "会话ID（可选）",
+                    "type": "string",
+                    "example": "conv-1234567890ABCDEFG"
+                },
                 "kb_id": {
                     "description": "知识库ID（可选）",
                     "type": "string",
@@ -1122,6 +1175,11 @@
                         " \"文档片段2\"]"
                     ]
                 },
+                "conversation_id": {
+                    "description": "会话ID",
+                    "type": "string",
+                    "example": "01KK4BRK0P0HEBSNSBB6MY8QGWCONV"
+                },
                 "source_docs": {
                     "description": "来源文档ID列表",
                     "type": "array",
@@ -1132,6 +1190,41 @@
                         "[\"doc_id_1\"",
                         " \"doc_id_2\"]"
                     ]
+                }
+            }
+        },
+        "handler.IntentClassifyRequest": {
+            "type": "object",
+            "required": [
+                "question"
+            ],
+            "properties": {
+                "min_score": {
+                    "description": "最小相似度分数",
+                    "type": "number",
+                    "example": 0.4
+                },
+                "question": {
+                    "description": "用户问题",
+                    "type": "string",
+                    "example": "报销流程怎么走？"
+                },
+                "top_k": {
+                    "description": "返回前几个意图",
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "handler.IntentClassifyResponse": {
+            "type": "object",
+            "properties": {
+                "intents": {
+                    "description": "识别到的意图列表",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/service.IntentScore"
+                    }
                 }
             }
         },
@@ -1392,6 +1485,32 @@
                     "description": "响应消息",
                     "type": "string",
                     "example": "success"
+                }
+            }
+        },
+        "service.IntentScore": {
+            "type": "object",
+            "properties": {
+                "collection_name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kb_id": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
                 }
             }
         },

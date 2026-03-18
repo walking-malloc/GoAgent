@@ -141,3 +141,31 @@ func (r *DocumentChunkRepository) CountByVectorStatus(docID string, status model
 		Count(&count).Error
 	return count, err
 }
+
+// SearchByKeyword 在指定知识库中按关键词检索已向量化的文档分块
+// - kbID 为空时，不限制知识库（用于全局兜底）
+// - keyword 为空时，直接返回空结果，避免全表扫描
+func (r *DocumentChunkRepository) SearchByKeyword(kbID, keyword string, limit int) ([]*model.DocumentChunk, error) {
+	var chunks []*model.DocumentChunk
+	if strings.TrimSpace(keyword) == "" {
+		return chunks, nil
+	}
+
+	query := r.db.Model(&model.DocumentChunk{}).
+		Where("vector_status = ?", model.VectorStatusCompleted)
+
+	if kbID != "" {
+		query = query.Where("kb_id = ?", kbID)
+	}
+
+	like := "%" + keyword + "%"
+	query = query.Where("content LIKE ?", like)
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	// 使用 chunk_index 作为排序，让相同文档的分块顺序稳定
+	err := query.Order("chunk_index ASC").Find(&chunks).Error
+	return chunks, err
+}

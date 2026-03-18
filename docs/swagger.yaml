@@ -2,6 +2,10 @@ basePath: /api/v1
 definitions:
   handler.ChatRequest:
     properties:
+      conversation_id:
+        description: 会话ID（可选）
+        example: conv-1234567890ABCDEFG
+        type: string
       kb_id:
         description: 知识库ID（可选）
         example: 01KK4BRK0P0HEBSNSBB6MY8QGW
@@ -31,6 +35,10 @@ definitions:
         items:
           type: string
         type: array
+      conversation_id:
+        description: 会话ID
+        example: 01KK4BRK0P0HEBSNSBB6MY8QGWCONV
+        type: string
       source_docs:
         description: 来源文档ID列表
         example:
@@ -38,6 +46,31 @@ definitions:
         - ' "doc_id_2"]'
         items:
           type: string
+        type: array
+    type: object
+  handler.IntentClassifyRequest:
+    properties:
+      min_score:
+        description: 最小相似度分数
+        example: 0.4
+        type: number
+      question:
+        description: 用户问题
+        example: 报销流程怎么走？
+        type: string
+      top_k:
+        description: 返回前几个意图
+        example: 5
+        type: integer
+    required:
+    - question
+    type: object
+  handler.IntentClassifyResponse:
+    properties:
+      intents:
+        description: 识别到的意图列表
+        items:
+          $ref: '#/definitions/service.IntentScore'
         type: array
     type: object
   handler.LoginRequest:
@@ -225,6 +258,23 @@ definitions:
         description: 响应消息
         example: success
         type: string
+    type: object
+  service.IntentScore:
+    properties:
+      collection_name:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      kb_id:
+        type: string
+      path:
+        type: string
+      reason:
+        type: string
+      score:
+        type: number
     type: object
   service.LoginVO:
     properties:
@@ -512,6 +562,38 @@ paths:
       summary: 健康检查
       tags:
       - 系统
+  /intent/classify:
+    post:
+      consumes:
+      - application/json
+      description: 使用 LLM 对用户问题进行意图识别，返回按分数排序的意图列表
+      parameters:
+      - description: 意图识别请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.IntentClassifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 意图识别结果
+          schema:
+            $ref: '#/definitions/handler.IntentClassifyResponse'
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 意图识别
+      tags:
+      - Intent
   /knowledge-base:
     get:
       consumes:

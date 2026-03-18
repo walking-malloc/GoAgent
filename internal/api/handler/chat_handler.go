@@ -56,7 +56,6 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	// 调用服务
 	resp, err := h.chatService.Chat(c.Request.Context(), service.ChatRequest{
 		Question:       req.Question,
-		KBID:           req.KBID,
 		TopK:           req.TopK,
 		ConversationID: req.ConversationID,
 	})

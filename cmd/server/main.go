@@ -265,6 +265,8 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 		embeddingSvc := ai.NewEmbeddingService(cfg)
 		vectorMgr := milvus.NewVectorManager(milvusClient)
 		kbRepo := repository.NewKnowledgeBaseRepository(db)
+		chunkRepo := repository.NewDocumentChunkRepository(db)
+		rerankSvc := ai.NewRerankService(cfg)
 
 		// 默认向量维度，用于创建需要的 Milvus Collection
 		defaultDim := 1024
@@ -295,7 +297,6 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 		{
 			// 初始化文档服务
 			docRepo := repository.NewDocumentRepository(db)
-			chunkRepo := repository.NewDocumentChunkRepository(db)
 
 			// 分块服务配置
 			chunkService := service.NewChunkService(500, 50) // 500 字符分块，50 字符重叠
@@ -324,18 +325,29 @@ func setupRoutes(r *gin.Engine, cfg *config.Config) {
 			documents.DELETE("/:id", docHandler.DeleteDocument)            // 删除文档
 		}
 
+		// 初始化 LLM、问题重写与意图服务（供问答与意图识别共用）
+		llmSvc := ai.NewLLMService(cfg)
+		intentSvc := service.NewIntentService(llmSvc)
+		rewriteSvc := service.NewQueryRewriteService(llmSvc)
+
 		// RAG问答相关（需要认证）
 		chat := v1.Group("/chat")
 		// chat.Use(middleware.OptionalAuth())
 		{
-			// 初始化RAG问答服务
-			retrievalSvc := service.NewRetrievalService(embeddingSvc, vectorMgr)
-			llmSvc := ai.NewLLMService(cfg)
+			// 初始化RAG问答服务（使用向量 + 关键词召回 + RRF + Cross-Encoder 重排）
+			retrievalSvc := service.NewRetrievalService(embeddingSvc, vectorMgr, chunkRepo, rerankSvc)
 			memorySvc := service.NewConversationMemoryService(embeddingSvc, vectorMgr, chatMemoryCollection)
-			chatService := service.NewChatService(retrievalSvc, llmSvc, kbRepo, memorySvc)
+			chatService := service.NewChatService(retrievalSvc, llmSvc, kbRepo, memorySvc, intentSvc, rewriteSvc)
 			chatHandler := handler.NewChatHandler(chatService)
 
 			chat.POST("", chatHandler.Chat) // RAG智能问答
+		}
+
+		// 意图识别相关（简单演示）
+		intentGroup := v1.Group("/intent")
+		{
+			intentHandler := handler.NewIntentHandler(intentSvc)
+			intentGroup.POST("/classify", intentHandler.ClassifyIntent)
 		}
 	}
 }
